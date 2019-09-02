@@ -1,0 +1,5 @@
+{:paths ["src"]
+
+ :deps
+ {org.clojure/clojure       {:mvn/version "1.10.1"}
+  org.clojure/data.fressian {:mvn/version "0.2.1"}}}
