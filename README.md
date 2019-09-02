@@ -3,7 +3,7 @@ Fressian read/write handlers for common Clojure data types.
 
 Extracted from https://github.com/cerner/clara-rules.
 
-Add to __deps.edn__:
+### Add to __deps.edn__:
 
 ``` clojure
 fressian-handlers {:git/url "https://github.com/dimovich/fressian-handlers"
@@ -11,7 +11,7 @@ fressian-handlers {:git/url "https://github.com/dimovich/fressian-handlers"
 
 ```
 
-Use like this:
+### Use like this:
 
 ```clojure
 (require '[clojure.java.io :as io]
