@@ -11,7 +11,7 @@ fressian-handlers {:git/url "https://github.com/dimovich/fressian-handlers"
 
 ```
 
-### Use like this:
+### Usage:
 
 ```clojure
 (require '[clojure.java.io :as io]
