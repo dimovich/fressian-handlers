@@ -7,7 +7,7 @@ Extracted from https://github.com/cerner/clara-rules.
 
 ``` clojure
 fressian-handlers {:git/url "https://github.com/dimovich/fressian-handlers"
-                   :sha "c99fb9e4b271add16510056a588bdba493261015"}
+                   :sha "df8535b99beddcc8a3b4a93a620939e6aa74c7c3"}
 
 ```
 
