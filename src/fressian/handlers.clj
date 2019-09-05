@@ -28,6 +28,43 @@
 
 
 
+
+;; ctx
+#_"A cache for writing and reading Clojure records.  At write time, an IdentityHashMap can be
+   used to keep track of repeated references to the same object instance occurring in
+   the serialization stream.  At read time, a plain ArrayList (mutable and indexed for speed)
+   can be used to add records to when they are first seen, then look up repeated occurrences
+   of references to the same record instance later."
+
+
+(defn clj-struct->idx
+  "Gets the numeric index for the given struct from the clj-struct-holder."
+  [ctx fact]
+  (.get ctx fact))
+
+(defn clj-struct-holder-add-fact-idx!
+  "Adds the fact to the clj-struct-holder with a new index.  This can later be retrieved
+   with clj-struct->idx."
+  [ctx fact]
+  ;; Note the values will be int type here.  This shouldn't be a problem since they
+  ;; will be read later as longs and both will be compatible with the index lookup
+  ;; at read-time.  This could have a cast to long here, but it would waste time
+  ;; unnecessarily.
+  (.put ctx fact (.size ctx)))
+
+(defn clj-struct-idx->obj
+  "The reverse of clj-struct->idx.  Returns an object for the given index found
+   in clj-struct-holder."
+  [ctx id]
+  (.get ctx id))
+
+(defn clj-struct-holder-add-obj!
+  "The reverse of clj-struct-holder-add-fact-idx!.  Adds the object to the clj-struct-holder
+   at the next available index."
+  [ctx fact]
+  (.add ctx fact)
+  fact)
+
 (defn create-map-entry
   "Helper to create map entries.  This can be useful for serialization implementations
    on clojure.lang.MapEntry types.
@@ -59,7 +96,7 @@
     (when (and (not cname)
                (not= (.comparator s) clojure.lang.RT/DEFAULT_COMPARATOR))
       (throw (ex-info (str "Cannot serialize sorted collection with non-default"
-                           " comparator because no :destreams.fressian/comparator-name provided in metadata.")
+                           " comparator because no :clara.rules.durability/comparator-name provided in metadata.")
                       {:sorted-coll s
                        :comparator (.comparator s)})))
 
@@ -173,7 +210,8 @@
        m (with-meta m)
        add-fn add-fn))))
 
-(defn create-identity-based-handler
+
+(defn create-handler
   [clazz
    tag
    write-fn
@@ -188,9 +226,52 @@
                  (read-fn rdr)))}})
 
 
-(def handlers
+
+(defn create-identity-based-handler
+  [clazz
+   tag
+   write-fn
+   read-fn
+   ctx]
+  (let [indexed-tag (str tag "-idx")]
+    ;; Write an object a single time per object reference to that object.  The object is then "cached"
+    ;; with the IdentityHashMap `(:clj-struct ctx)`.  If another reference to this object instance
+    ;; is encountered later, only the "index" of the object in the map will be written.
+    {:class clazz
+     :writer (reify WriteHandler
+               (write [_ w o]
+                 (if-let [idx (clj-struct->idx ctx o)]
+                   (do
+                     (.writeTag w indexed-tag 1)
+                     (.writeInt w idx))
+                   (do
+                     ;; We are writing all nested objects prior to adding the original object to the cache here as
+                     ;; this will be the order that will occur on read, ie, the reader will have traverse to the bottom
+                     ;; of the struct before rebuilding the object.
+                     (write-fn w tag o)
+                     (clj-struct-holder-add-fact-idx! ctx o)))))
+     ;; When reading the first time a reference to an object instance is found, the entire object will
+     ;; need to be constructed.  It is then put into indexed cache.  If more references to this object
+     ;; instance are encountered later, they will be in the form of a numeric index into this cache.
+     ;; This is guaranteed by the semantics of the corresponding WriteHandler.
+     :readers {indexed-tag
+               (reify ReadHandler
+                 (read [_ rdr _ _]
+                   (clj-struct-idx->obj ctx (.readInt rdr))))
+               tag
+               (reify ReadHandler
+                 (read [_ rdr _ _]
+                   (->> rdr
+                        read-fn
+                        (clj-struct-holder-add-obj! ctx))))}}))
+
+
+
+
+(defn get-handlers
   "A structure tying together the custom Fressian write and read handlers used
    by FressianSessionSerializer's."
+  [ctx]
   {"java/class"
    {:class Class
     :writer (reify WriteHandler
@@ -207,21 +288,24 @@
     clojure.lang.APersistentSet
     "clj/set"
     write-with-meta
-    (fn clj-set-reader [rdr] (read-with-meta rdr set)))
+    (fn clj-set-reader [rdr] (read-with-meta rdr set))
+    ctx)
    
    "clj/vector"
    (create-identity-based-handler
     clojure.lang.APersistentVector
     "clj/vector"
     write-with-meta
-    (fn clj-vec-reader [rdr] (read-with-meta rdr vec)))
+    (fn clj-vec-reader [rdr] (read-with-meta rdr vec))
+    ctx)
 
    "clj/list"
    (create-identity-based-handler
     clojure.lang.PersistentList
     "clj/list"
     write-with-meta
-    (fn clj-list-reader [rdr] (read-with-meta rdr #(apply list %))))
+    (fn clj-list-reader [rdr] (read-with-meta rdr #(apply list %)))
+    ctx)
 
    "clj/emptylist"
    ;; Not using the identity based handler as this will always be identical anyway
@@ -247,21 +331,24 @@
     clojure.lang.ASeq
     "clj/aseq"
     write-with-meta
-    (fn clj-seq-reader [rdr] (read-with-meta rdr sequence)))
+    (fn clj-seq-reader [rdr] (read-with-meta rdr sequence))
+    ctx)
 
    "clj/lazyseq"
    (create-identity-based-handler
     clojure.lang.LazySeq
     "clj/lazyseq"
     write-with-meta
-    (fn clj-lazy-seq-reader [rdr] (read-with-meta rdr sequence)))
+    (fn clj-lazy-seq-reader [rdr] (read-with-meta rdr sequence))
+    ctx)
 
    "clj/map"
    (create-identity-based-handler
     clojure.lang.APersistentMap
     "clj/map"
     (fn clj-map-writer [wtr tag m] (write-with-meta wtr tag m write-map))
-    (fn clj-map-reader [rdr] (read-with-meta rdr #(into {} %))))
+    (fn clj-map-reader [rdr] (read-with-meta rdr #(into {} %)))
+    ctx)
 
    "clj/treeset"
    (create-identity-based-handler
@@ -285,7 +372,8 @@
                   (seq->sorted-set c))]
         (if m
           (with-meta s m)
-          s))))
+          s)))
+    ctx)
 
    "clj/treemap"
    (create-identity-based-handler
@@ -308,7 +396,8 @@
             s (seq->sorted-map (.readObject rdr) c)]
         (if m
           (with-meta s m)
-          s))))
+          s)))
+    ctx)
 
    "clj/mapentry"
    (create-identity-based-handler
@@ -320,7 +409,8 @@
       (.writeObject wtr (val o)))
     (fn clj-mapentry-reader [^Reader rdr]
       (create-map-entry (.readObject rdr)
-                        (.readObject rdr))))
+                        (.readObject rdr)))
+    ctx)
 
    ;; Have to redefine both Symbol and IRecord to support metadata as well
    ;; as identity-based caching for the IRecord case.
@@ -341,33 +431,39 @@
       (let [s (symbol (.readObject rdr) (.readObject rdr))
             m (read-meta rdr)]
         (cond-> s
-          m (with-meta m)))))
+          m (with-meta m))))
+    ctx)
 
    "clj/record"
    (create-identity-based-handler
     clojure.lang.IRecord
     "clj/record"
     write-record
-    read-record)})
+    read-record
+    ctx)})
 
-(def write-handlers
+(defn get-write-handlers
   "All Fressian write handlers used by FressianSessionSerializer's."
+  [& [ctx]]
   (into fres/clojure-write-handlers
         (map (fn [[tag {clazz :class wtr :writer}]]
                [clazz {tag wtr}]))
-        handlers))
+        (get-handlers (or ctx (IdentityHashMap.)))))
 
-(def read-handlers
+(defn get-read-handlers
   "All Fressian read handlers used by FressianSessionSerializer's."
-    (->> handlers
+  [& [ctx]]
+  (->> (get-handlers (or ctx (ArrayList.)))
        vals
        (into fres/clojure-read-handlers
              (mapcat :readers))))
 
-(def write-handler-lookup
-  (-> write-handlers
+(defn get-write-handler-lookup
+  [& [ctx]]
+  (-> (get-write-handlers ctx)
       fres/associative-lookup
       fres/inheritance-lookup))
 
-(def read-handler-lookup
-  (fres/associative-lookup read-handlers))
+(defn get-read-handler-lookup
+  [& [ctx]]
+  (fres/associative-lookup (get-read-handlers ctx)))
