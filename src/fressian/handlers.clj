@@ -173,7 +173,7 @@
        m (with-meta m)
        add-fn add-fn))))
 
-(defn create-identity-based-handler
+(defn create-handler
   [clazz
    tag
    write-fn
@@ -203,21 +203,21 @@
                   (resolve (.readObject rdr))))}}
 
    "clj/set"
-   (create-identity-based-handler
+   (create-handler
     clojure.lang.APersistentSet
     "clj/set"
     write-with-meta
     (fn clj-set-reader [rdr] (read-with-meta rdr set)))
    
    "clj/vector"
-   (create-identity-based-handler
+   (create-handler
     clojure.lang.APersistentVector
     "clj/vector"
     write-with-meta
     (fn clj-vec-reader [rdr] (read-with-meta rdr vec)))
 
    "clj/list"
-   (create-identity-based-handler
+   (create-handler
     clojure.lang.PersistentList
     "clj/list"
     write-with-meta
@@ -243,28 +243,28 @@
                       m (with-meta m)))))}}
 
    "clj/aseq"
-   (create-identity-based-handler
+   (create-handler
     clojure.lang.ASeq
     "clj/aseq"
     write-with-meta
     (fn clj-seq-reader [rdr] (read-with-meta rdr sequence)))
 
    "clj/lazyseq"
-   (create-identity-based-handler
+   (create-handler
     clojure.lang.LazySeq
     "clj/lazyseq"
     write-with-meta
     (fn clj-lazy-seq-reader [rdr] (read-with-meta rdr sequence)))
 
    "clj/map"
-   (create-identity-based-handler
+   (create-handler
     clojure.lang.APersistentMap
     "clj/map"
     (fn clj-map-writer [wtr tag m] (write-with-meta wtr tag m write-map))
     (fn clj-map-reader [rdr] (read-with-meta rdr #(into {} %))))
 
    "clj/treeset"
-   (create-identity-based-handler
+   (create-handler
     clojure.lang.PersistentTreeSet
     "clj/treeset"
     (fn clj-treeset-writer [^Writer wtr tag s]
@@ -288,7 +288,7 @@
           s))))
 
    "clj/treemap"
-   (create-identity-based-handler
+   (create-handler
     clojure.lang.PersistentTreeMap
     "clj/treemap"
     (fn clj-treemap-writer [^Writer wtr tag o]
@@ -311,7 +311,7 @@
           s))))
 
    "clj/mapentry"
-   (create-identity-based-handler
+   (create-handler
     clojure.lang.MapEntry
     "clj/mapentry"
     (fn clj-mapentry-writer [^Writer wtr tag o]
@@ -326,7 +326,7 @@
    ;; as identity-based caching for the IRecord case.
 
    "clj/sym"
-   (create-identity-based-handler
+   (create-handler
     clojure.lang.Symbol
     "clj/sym"
     (fn clj-sym-writer [^Writer wtr tag o]
@@ -344,7 +344,7 @@
           m (with-meta m)))))
 
    "clj/record"
-   (create-identity-based-handler
+   (create-handler
     clojure.lang.IRecord
     "clj/record"
     write-record
